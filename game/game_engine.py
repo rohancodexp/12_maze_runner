@@ -3,6 +3,7 @@ import time
 
 from game.maze import generate_maze, solve, CELL
 from game.player import Player
+from game.leaderboard import add_score, load_leaderboard
 
 
 FPS = 60
@@ -47,10 +48,13 @@ class GameEngine:
         self.reset()
 
     def reset(self):
+        # Generate a new maze.
         self.walls = generate_maze(COLS, ROWS)
 
+        # Reset player.
         self.player = Player(0, 0)
 
+        # Exit is always the bottom-right cell.
         self.exit_rect = pygame.Rect(
             (COLS - 1) * CELL + 5,
             (ROWS - 1) * CELL + 5,
@@ -58,13 +62,24 @@ class GameEngine:
             CELL - 10
         )
 
+        # Reset timer.
         self.start_time = time.time()
         self.elapsed = 0
+
+        # Reset game state.
         self.won = False
 
         # Task 2: BFS hint state.
         self.show_hint = False
         self.path = []
+
+        # Task 4: leaderboard state.
+        self.current_score = None
+        self.leaderboard = load_leaderboard()
+
+        # Task 3: immediately update fog
+        # around the newly reset player.
+        self.update_fog()
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -111,11 +126,12 @@ class GameEngine:
         # Cover the complete maze area with dark fog.
         self.fog.fill((0, 0, 0, 240))
 
-        # Use the player's current pixel position as
-        # the center of the visible circular region.
+        # Use the player's current pixel position
+        # as the center of the visible region.
         center = self.player.rect.center
 
-        # Create a transparent hole around the player.
+        # Create a transparent circular hole around
+        # the player.
         pygame.draw.circle(
             self.fog,
             (0, 0, 0, 0),
@@ -124,12 +140,14 @@ class GameEngine:
         )
 
     def update(self):
+        # Once the player wins, stop updating the run.
         if self.won:
             return
 
         keys = pygame.key.get_pressed()
 
-        # Existing player movement and Task 1 wall collision.
+        # Existing player movement and Task 1
+        # wall collision.
         self.player.move(
             keys,
             self.walls,
@@ -137,19 +155,28 @@ class GameEngine:
             COLS
         )
 
-        # Task 3: update the visibility area after
-        # the player moves.
+        # Task 3: update Fog of War after movement.
         self.update_fog()
 
+        # Update timer.
         self.elapsed = time.time() - self.start_time
 
-        # Task 2: recalculate the BFS hint while
-        # the player moves.
+        # Task 2: recalculate BFS while hint is active.
         if self.show_hint:
             self.update_hint()
 
+        # Check whether the player reached the exit.
         if self.player.rect.colliderect(self.exit_rect):
             self.won = True
+
+            # Finalize the current run time.
+            self.current_score = self.elapsed
+
+            # Add the completed run to the leaderboard.
+            # This happens only once because self.won becomes True.
+            self.leaderboard = add_score(
+                self.current_score
+            )
 
     def draw_hint(self):
         if not self.path:
@@ -224,6 +251,10 @@ class GameEngine:
     def draw(self):
         self.screen.fill(BG)
 
+        # ----------------------------------------
+        # MAZE AREA
+        # ----------------------------------------
+
         # 1. Draw maze.
         self.draw_maze()
 
@@ -257,13 +288,16 @@ class GameEngine:
         self.player.draw(self.screen)
 
         # 5. Draw Fog of War.
-        # The fog covers only the maze area, not the HUD.
+        # The fog covers only the maze area.
         self.screen.blit(
             self.fog,
             (0, 0)
         )
 
-        # HUD.
+        # ----------------------------------------
+        # HUD
+        # ----------------------------------------
+
         hud = pygame.Rect(
             0,
             ROWS * CELL,
@@ -291,7 +325,10 @@ class GameEngine:
             )
         )
 
-        # Win overlay.
+        # ----------------------------------------
+        # WIN SCREEN
+        # ----------------------------------------
+
         if self.won:
             overlay = pygame.Surface(
                 (WIDTH, ROWS * CELL),
@@ -307,12 +344,22 @@ class GameEngine:
                 (0, 0)
             )
 
+            # Completion message.
             msg = self.big_font.render(
                 f"Solved in {self.elapsed:.1f}s!",
                 True,
                 (80, 240, 80)
             )
 
+            self.screen.blit(
+                msg,
+                (
+                    WIDTH // 2 - msg.get_width() // 2,
+                    ROWS * CELL // 2 - 105
+                )
+            )
+
+            # Restart message.
             sub = self.font.render(
                 "Press R for a new maze",
                 True,
@@ -320,20 +367,60 @@ class GameEngine:
             )
 
             self.screen.blit(
-                msg,
-                (
-                    WIDTH // 2 - msg.get_width() // 2,
-                    ROWS * CELL // 2 - 30
-                )
-            )
-
-            self.screen.blit(
                 sub,
                 (
                     WIDTH // 2 - sub.get_width() // 2,
-                    ROWS * CELL // 2 + 20
+                    ROWS * CELL // 2 - 60
                 )
             )
+
+            # Leaderboard title.
+            leaderboard_title = self.font.render(
+                "TOP 5",
+                True,
+                (240, 220, 80)
+            )
+
+            self.screen.blit(
+                leaderboard_title,
+                (
+                    WIDTH // 2
+                    - leaderboard_title.get_width() // 2,
+                    ROWS * CELL // 2 - 20
+                )
+            )
+
+            # Leaderboard entries.
+            for index, score in enumerate(self.leaderboard):
+
+                # Highlight the current run if it appears
+                # in the top five.
+                is_current = (
+                    self.current_score is not None
+                    and abs(score - self.current_score) < 0.000001
+                )
+
+                if is_current:
+                    entry_color = (80, 240, 80)
+                else:
+                    entry_color = (200, 200, 200)
+
+                entry = self.font.render(
+                    f"{index + 1}. {score:.2f}s",
+                    True,
+                    entry_color
+                )
+
+                self.screen.blit(
+                    entry,
+                    (
+                        WIDTH // 2
+                        - entry.get_width() // 2,
+                        ROWS * CELL // 2
+                        + 10
+                        + index * 28
+                    )
+                )
 
         pygame.display.flip()
 
