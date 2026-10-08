@@ -33,6 +33,17 @@ class GameEngine:
             bold=True
         )
 
+        # Task 3: Fog of War.
+        # Create the fog surface once and reuse it.
+        self.fog = pygame.Surface(
+            (WIDTH, ROWS * CELL),
+            pygame.SRCALPHA
+        )
+
+        # Visibility radius:
+        # 3 cells + half a cell.
+        self.fog_radius = 3 * CELL + CELL // 2
+
         self.reset()
 
     def reset(self):
@@ -94,6 +105,24 @@ class GameEngine:
 
         self.path = solve(start, goal)
 
+    def update_fog(self):
+        """Update the Fog of War around the player."""
+
+        # Cover the complete maze area with dark fog.
+        self.fog.fill((0, 0, 0, 240))
+
+        # Use the player's current pixel position as
+        # the center of the visible circular region.
+        center = self.player.rect.center
+
+        # Create a transparent hole around the player.
+        pygame.draw.circle(
+            self.fog,
+            (0, 0, 0, 0),
+            center,
+            self.fog_radius
+        )
+
     def update(self):
         if self.won:
             return
@@ -108,10 +137,14 @@ class GameEngine:
             COLS
         )
 
+        # Task 3: update the visibility area after
+        # the player moves.
+        self.update_fog()
+
         self.elapsed = time.time() - self.start_time
 
-        # Recalculate the shortest path whenever the
-        # player moves while the hint is enabled.
+        # Task 2: recalculate the BFS hint while
+        # the player moves.
         if self.show_hint:
             self.update_hint()
 
@@ -191,14 +224,14 @@ class GameEngine:
     def draw(self):
         self.screen.fill(BG)
 
-        # Draw the maze first.
+        # 1. Draw maze.
         self.draw_maze()
 
-        # Task 2: draw BFS hint over the maze.
+        # 2. Draw BFS hint.
         if self.show_hint:
             self.draw_hint()
 
-        # Draw exit.
+        # 3. Draw exit.
         pygame.draw.rect(
             self.screen,
             EXIT_COLOR,
@@ -220,8 +253,15 @@ class GameEngine:
             )
         )
 
-        # Draw player.
+        # 4. Draw player.
         self.player.draw(self.screen)
+
+        # 5. Draw Fog of War.
+        # The fog covers only the maze area, not the HUD.
+        self.screen.blit(
+            self.fog,
+            (0, 0)
+        )
 
         # HUD.
         hud = pygame.Rect(
